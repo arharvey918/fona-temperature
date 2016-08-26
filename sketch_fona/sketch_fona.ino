@@ -26,6 +26,13 @@ Note that if you need to set a GPRS APN, username, and password scroll down to
 the commented section below at the end of the setup() function.
 */
 #include "Adafruit_FONA.h"
+#include <OneWire.h>
+#include "constants.h"
+
+
+
+
+OneWire  ds(2);  // on pin 2 (a 4.7K resistor is necessary)
 
 #define FONA_RX  9
 #define FONA_TX  8
@@ -55,7 +62,18 @@ uint8_t readline(char *buff, uint8_t maxbuff, uint16_t timeout = 0);
 uint8_t type;
 
 void setup() {
-  while (!Serial);
+
+  pinMode(13, OUTPUT);
+
+  digitalWrite(13, HIGH);   // turn the LED on (HIGH is the voltage level)
+  delay(1000);              // wait for a second
+  digitalWrite(13, LOW);    // turn the LED off by making the voltage LOW
+  delay(1000);              // wait for a second  digitalWrite(13, HIGH);   // turn the LED on (HIGH is the voltage level)
+  digitalWrite(13, HIGH);    // turn the LED off by making the voltage LOW
+  delay(1000);              // wait for a second  digitalWrite(13, HIGH);   // turn the LED on (HIGH is the voltage level)
+  digitalWrite(13, LOW);    // turn the LED off by making the voltage LOW
+  delay(1000);              // wait for a second
+  
 
   Serial.begin(115200);
   Serial.println(F("FONA basic test"));
@@ -109,59 +127,36 @@ void setup() {
     // turn GPRS on
     boolean gprs = false;
     while (!gprs) {
+        digitalWrite(13, HIGH);    // turn the LED off by making the voltage LOW
+  delay(1000);              // wait for a second  digitalWrite(13, HIGH);   // turn the LED on (HIGH is the voltage level)
       gprs = fona.enableGPRS(true);
-      if (!gprs)
+      if (!gprs) {
         Serial.println(F("Failed to turn on"));
+        
+  digitalWrite(13, LOW);    // turn the LED off by making the voltage LOW
+  delay(1000);              // wait for a second
+      }
         delay(5000);
     }
 
+    
+  digitalWrite(13, HIGH);    // turn the LED off by making the voltage LOW
+
 }
 
-void loop() {
+void loop() {  
   Serial.print(F("FONA> "));
-  while (! Serial.available() ) {
-    if (fona.available()) {
-      Serial.write(fona.read());
-    }
-  }
 
-  char command = Serial.read();
-  Serial.println(command);
-
-
-  switch (command) {
-    case 'g': {
-        // turn GPRS off
-        if (!fona.enableGPRS(false))
-          Serial.println(F("Failed to turn off"));
-        break;
-      }
-    case 'G': {
-        // turn GPRS on
-        if (!fona.enableGPRS(true))
-          Serial.println(F("Failed to turn on"));
-        break;
-      }
-    case 'l': {
-        // check for GSMLOC (requires GPRS)
-        uint16_t returncode;
-
-        if (!fona.getGSMLoc(&returncode, replybuffer, 250))
-          Serial.println(F("Failed!"));
-        if (returncode == 0) {
-          Serial.println(replybuffer);
-        } else {
-          Serial.print(F("Fail code #")); Serial.println(returncode);
-        }
-
-        break;
-      }
-    case 'w': {
         // read website URL
         uint16_t statuscode;
         int16_t length;
-        char url[] = "api.thingspeak.com/update?api_key=&field1=0";
-        length=strlen(url);
+        String key = API_KEY;
+        String urlkey = "api.thingspeak.com/update?api_key=" + key;
+        String url = urlkey + "&field1=" + gettemp();
+        length=url.length();
+
+        char charBuf[length];
+        url.toCharArray(charBuf, length);
 
         flushSerial();
         Serial.println(F("NOTE: in beta! Use small webpages to read!"));
@@ -170,9 +165,9 @@ void loop() {
         Serial.println(url);
 
         Serial.println(F("****"));
-        if (!fona.HTTP_GET_start(url, &statuscode, (uint16_t *)&length)) {
+        if (!fona.HTTP_GET_start(charBuf, &statuscode, (uint16_t *)&length)) {
           Serial.println("Failed!");
-          break;
+          return;
         }
         while (length > 0) {
           while (fona.available()) {
@@ -191,62 +186,16 @@ void loop() {
         }
         Serial.println(F("\n****"));
         fona.HTTP_GET_end();
-        break;
-      }
-
-    case 'W': {
-        // Post data to website
-        uint16_t statuscode;
-        int16_t length;
-        char url[] = "api.thingspeak.com/update";
-        char data[] = "key=&field1=10";
-        length=strlen(url);
-
-        flushSerial();
-        Serial.println(F("NOTE: in beta! Use simple websites to post!"));
-        Serial.println(F("URL to post (e.g. httpbin.org/post):"));
-        Serial.print(F("http://"));
-        Serial.println(url);
-        Serial.println(F("Data to post (e.g. \"foo\" or \"{\"simple\":\"json\"}\"):"));
-        Serial.println(data);
-
-
-        Serial.println(F("****"));
-        if (!fona.HTTP_POST_start(url, F("text/plain"), (uint8_t *) data, strlen(data), &statuscode, (uint16_t *)&length)) {
-          Serial.println("Failed!");
-          break;
-        }
-        while (length > 0) {
-          while (fona.available()) {
-            char c = fona.read();
-
-#if defined(__AVR_ATmega328P__) || defined(__AVR_ATmega168__)
-            loop_until_bit_is_set(UCSR0A, UDRE0); /* Wait until data register empty. */
-            UDR0 = c;
-#else
-            Serial.write(c);
-#endif
-
-            length--;
-            if (! length) break;
-          }
-        }
-        Serial.println(F("\n****"));
-        fona.HTTP_POST_end();
-        break;
-      }
+      
     /*****************************************/
 
-    default: {
-        Serial.println(F("Unknown command"));
-        break;
-      }
-  }
   // flush input
   flushSerial();
   while (fona.available()) {
     Serial.write(fona.read());
   }
+
+  delay(1800000);
 
 }
 
@@ -313,3 +262,99 @@ uint8_t readline(char *buff, uint8_t maxbuff, uint16_t timeout) {
   buff[buffidx] = 0;  // null term
   return buffidx;
 }
+
+String gettemp() {
+  byte i;
+  byte present = 0;
+  byte type_s;
+  byte data[12];
+  byte addr[8];
+  float celsius, fahrenheit;
+  
+    ds.reset_search();
+    delay(250);
+    ds.search(addr);
+  
+  Serial.print("ROM =");
+  for( i = 0; i < 8; i++) {
+    Serial.write(' ');
+    Serial.print(addr[i], HEX);
+  }
+
+  if (OneWire::crc8(addr, 7) != addr[7]) {
+      Serial.println("CRC is not valid!");
+      return;
+  }
+  Serial.println();
+ 
+  // the first ROM byte indicates which chip
+  switch (addr[0]) {
+    case 0x10:
+      Serial.println("  Chip = DS18S20");  // or old DS1820
+      type_s = 1;
+      break;
+    case 0x28:
+      Serial.println("  Chip = DS18B20");
+      type_s = 0;
+      break;
+    case 0x22:
+      Serial.println("  Chip = DS1822");
+      type_s = 0;
+      break;
+    default:
+      Serial.println("Device is not a DS18x20 family device.");
+      return;
+  } 
+
+  ds.reset();
+  ds.select(addr);
+  ds.write(0x44, 1);        // start conversion, with parasite power on at the end
+  
+  delay(1000);     // maybe 750ms is enough, maybe not
+  // we might do a ds.depower() here, but the reset will take care of it.
+  
+  present = ds.reset();
+  ds.select(addr);    
+  ds.write(0xBE);         // Read Scratchpad
+
+  Serial.print("  Data = ");
+  Serial.print(present, HEX);
+  Serial.print(" ");
+  for ( i = 0; i < 9; i++) {           // we need 9 bytes
+    data[i] = ds.read();
+    Serial.print(data[i], HEX);
+    Serial.print(" ");
+  }
+  Serial.print(" CRC=");
+  Serial.print(OneWire::crc8(data, 8), HEX);
+  Serial.println();
+
+  // Convert the data to actual temperature
+  // because the result is a 16 bit signed integer, it should
+  // be stored to an "int16_t" type, which is always 16 bits
+  // even when compiled on a 32 bit processor.
+  int16_t raw = (data[1] << 8) | data[0];
+  if (type_s) {
+    raw = raw << 3; // 9 bit resolution default
+    if (data[7] == 0x10) {
+      // "count remain" gives full 12 bit resolution
+      raw = (raw & 0xFFF0) + 12 - data[6];
+    }
+  } else {
+    byte cfg = (data[4] & 0x60);
+    // at lower res, the low bits are undefined, so let's zero them
+    if (cfg == 0x00) raw = raw & ~7;  // 9 bit resolution, 93.75 ms
+    else if (cfg == 0x20) raw = raw & ~3; // 10 bit res, 187.5 ms
+    else if (cfg == 0x40) raw = raw & ~1; // 11 bit res, 375 ms
+    //// default is 12 bit resolution, 750 ms conversion time
+  }
+  celsius = (float)raw / 16.0;
+  fahrenheit = celsius * 1.8 + 32.0;
+  Serial.print("  Temperature = ");
+  Serial.print(fahrenheit);
+  Serial.println(" Fahrenheit");
+
+  String fTemp = String(fahrenheit);
+  return fTemp;
+}
+
